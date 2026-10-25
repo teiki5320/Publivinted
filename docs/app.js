@@ -143,18 +143,38 @@ $("#btn-upload").addEventListener("click", async () => {
       await api(`/api/batches/${id}/photos`, { method: "POST", body: blob, headers: { "Content-Type": blob.type || "image/jpeg" } });
       $(`#thumbs figure[data-i="${i}"]`)?.classList.add("done");
     }
-    status.textContent = "Claude regroupe les photos et rédige les annonces… (environ 30 s à 1 min)";
-    const r = await api(`/api/batches/${id}/analyse`, { method: "POST" });
-    toast(`${r.items} annonce(s) construite(s)`);
+    await api(`/api/batches/${id}/analyse`, { method: "POST" });
     files = [];
     renderThumbs();
-    await refreshCounts();
-    go("swipe");
+    await suivreLot(id, status);
   } catch (err) {
     status.textContent = "Erreur : " + err.message;
-    btn.disabled = false;
+    btn.disabled = !files.length;
   }
 });
+
+// Claude rédige sur le Mac : on suit le lot jusqu'à ce que les annonces arrivent.
+const ETAPES = {
+  attente: "Photos envoyées. En attente du Mac… (il doit être allumé)",
+  analyse: "Claude rédige les annonces sur le Mac… (1 à 3 min)"
+};
+async function suivreLot(id, status) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20 * 60 * 1000) {
+    const b = await api(`/api/batches/${id}`);
+    if (b.status === "pret") {
+      status.textContent = "";
+      toast("Annonces prêtes : choisis les prix");
+      await refreshCounts();
+      if (!$("#v-import").hidden) go("swipe");
+      return;
+    }
+    if (b.status === "erreur") throw new Error(b.note || "la rédaction a échoué");
+    status.textContent = ETAPES[b.status] || "…";
+    await sleep(4000);
+  }
+  status.textContent = "Toujours en cours. Les annonces arriveront dans « Valider ».";
+}
 
 // ---------------- 2. Swipe ----------------
 let deck = [];

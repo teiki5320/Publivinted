@@ -3,7 +3,10 @@
 CREATE TABLE IF NOT EXISTS batches (
   id          TEXT PRIMARY KEY,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  status      TEXT NOT NULL DEFAULT 'import'   -- import | analyse | pret | erreur
+  -- import | attente (du Mac) | analyse (Claude rédige sur le Mac) | pret | erreur
+  status      TEXT NOT NULL DEFAULT 'import',
+  note        TEXT,                                -- message d'erreur de la rédaction
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS photos (

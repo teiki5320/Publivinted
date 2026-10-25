@@ -17,9 +17,6 @@ database_id = "8ebfdf96-e90c-4d40-bca3-a4aae3fd016a"
 binding = "PHOTOS"
 bucket_name = "publivinted-photos"
 
-[vars]
-CLAUDE_MODEL = "claude-sonnet-5-5"
-
-# Secrets (à poser avec wrangler, jamais dans le dépôt) :
-#   wrangler secret put APP_TOKEN          -> code d'accès de l'appli et de l'extension
-#   wrangler secret put ANTHROPIC_API_KEY  -> clé API Anthropic
+# Secret (à poser avec wrangler, jamais dans le dépôt) :
+#   wrangler secret put APP_TOKEN   -> code d'accès de l'appli, de l'extension et du programme du Mac
+# Pas de clé API Claude : les annonces sont rédigées sur le Mac (mac/agent.mjs) avec l'abonnement.

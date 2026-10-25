@@ -1,10 +1,12 @@
 // Publivinted — Worker Cloudflare (API + appli web statique)
-// Auth : cookie « pv » (appli web) ou en-tête « Authorization: Bearer » (extension), comparé au secret APP_TOKEN.
+// Auth : en-tête « Authorization: Bearer » (appli, extension, programme du Mac) ou cookie « pv », comparé au secret APP_TOKEN.
+// Les annonces sont rédigées par Claude sur le Mac (mac/agent.mjs), avec l'abonnement : aucune clé API ici.
 
-import { analyseBatch } from "./claude.js";
+import { normaliser } from "./annonces.js";
 
 const STATUTS = ["brouillon", "valide", "ecarte", "publication", "publie", "vendu", "a_revoir"];
 const MAX_PHOTOS_LOT = 40;
+const DELAI_REPRISE = "-20 minutes"; // un lot « analyse » plus vieux est repris (Mac éteint en cours de route)
 
 export default {
   async fetch(request, env) {
@@ -44,6 +46,10 @@ async function route(request, env, url) {
   if ((p = match(pathname, "/api/batches/:id/photos")) && m === "POST") return uploadPhoto(request, env, p.id);
   if ((p = match(pathname, "/api/batches/:id/analyse")) && m === "POST") return analyse(env, p.id);
   if ((p = match(pathname, "/api/batches/:id")) && m === "GET") return getBatch(env, p.id);
+
+  // Programme du Mac : prend le lot suivant, renvoie les annonces rédigées par Claude
+  if (pathname === "/api/mac/next" && m === "POST") return macNext(env);
+  if ((p = match(pathname, "/api/mac/batches/:id/result")) && m === "POST") return macResult(request, env, p.id);
 
   // Photos
   if ((p = match(pathname, "/api/photos/:id")) && m === "GET") return getPhoto(env, p.id);
@@ -175,32 +181,60 @@ async function getPhoto(env, id) {
   });
 }
 
-// ---------- Analyse par Claude ----------
+// ---------- Rédaction par Claude (sur le Mac) ----------
+// L'appli met le lot en attente ; le programme du Mac le prend, fait rédiger Claude et renvoie le résultat.
 async function analyse(env, batchId) {
-  if (!env.ANTHROPIC_API_KEY) throw httpError(500, "Secret ANTHROPIC_API_KEY non configuré");
-  const { results: photos } = await env.DB.prepare(
-    "SELECT id, r2_key FROM photos WHERE batch_id = ? ORDER BY position"
-  ).bind(batchId).all();
-  if (!photos.length) throw httpError(400, "Aucune photo dans ce lot");
-
-  await env.DB.prepare("UPDATE batches SET status = 'analyse' WHERE id = ?").bind(batchId).run();
+  const { n } = await env.DB.prepare("SELECT COUNT(*) AS n FROM photos WHERE batch_id = ?").bind(batchId).first();
+  if (!n) throw httpError(400, "Aucune photo dans ce lot");
 
   // Ré-analyse : on efface les brouillons précédents du lot
   await env.DB.batch([
     env.DB.prepare("UPDATE photos SET item_id = NULL WHERE batch_id = ?").bind(batchId),
-    env.DB.prepare("DELETE FROM items WHERE batch_id = ? AND status = 'brouillon'").bind(batchId)
+    env.DB.prepare("DELETE FROM items WHERE batch_id = ? AND status = 'brouillon'").bind(batchId),
+    env.DB.prepare("UPDATE batches SET status = 'attente', note = NULL, updated_at = datetime('now') WHERE id = ?").bind(batchId)
   ]);
+  return json({ status: "attente" });
+}
 
+async function macNext(env) {
+  // Prend atomiquement le plus ancien lot en attente (ou abandonné en cours de rédaction).
+  const batch = await env.DB.prepare(
+    `UPDATE batches SET status = 'analyse', updated_at = datetime('now')
+     WHERE id = (SELECT id FROM batches
+                 WHERE status = 'attente' OR (status = 'analyse' AND updated_at < datetime('now', ?))
+                 ORDER BY updated_at LIMIT 1)
+     RETURNING id`
+  ).bind(DELAI_REPRISE).first();
+  if (!batch) return json({ batch: null });
+  const { results: photos } = await env.DB.prepare(
+    "SELECT id FROM photos WHERE batch_id = ? ORDER BY position"
+  ).bind(batch.id).all();
+  return json({ batch: { id: batch.id, photos: photos.map((ph) => ph.id) } });
+}
+
+async function macResult(request, env, batchId) {
+  const batch = await env.DB.prepare("SELECT status FROM batches WHERE id = ?").bind(batchId).first();
+  if (!batch) throw httpError(404, "Lot introuvable");
+  if (batch.status !== "analyse") throw httpError(409, "Ce lot n'est pas en cours de rédaction");
+  const body = await request.json().catch(() => ({}));
+  const echec = (note) =>
+    env.DB.prepare("UPDATE batches SET status = 'erreur', note = ?, updated_at = datetime('now') WHERE id = ?")
+      .bind(String(note).slice(0, 500), batchId).run();
+
+  if (body.error) { await echec(body.error); return json({ ok: false }); }
+
+  const { results: photos } = await env.DB.prepare(
+    "SELECT id FROM photos WHERE batch_id = ? ORDER BY position"
+  ).bind(batchId).all();
   let articles;
   try {
-    articles = await analyseBatch(env, photos);
+    articles = normaliser(body, photos.length);
   } catch (e) {
-    await env.DB.prepare("UPDATE batches SET status = 'erreur' WHERE id = ?").bind(batchId).run();
-    throw httpError(502, "Analyse Claude échouée : " + e.message);
+    await echec("Réponse de Claude inutilisable : " + e.message);
+    return json({ ok: false });
   }
 
   const stmts = [];
-  const created = [];
   for (const a of articles) {
     const itemId = crypto.randomUUID();
     const prix = clampPrix(a.prix_conseille);
@@ -211,14 +245,12 @@ async function analyse(env, batchId) {
       ).bind(itemId, batchId, JSON.stringify(a.annonce), prix, clampPrix(a.prix_min), clampPrix(a.prix_max), prix)
     );
     a.photos.forEach((idx, pos) => {
-      const ph = photos[idx];
-      if (ph) stmts.push(env.DB.prepare("UPDATE photos SET item_id = ?, position = ? WHERE id = ?").bind(itemId, pos, ph.id));
+      stmts.push(env.DB.prepare("UPDATE photos SET item_id = ?, position = ? WHERE id = ?").bind(itemId, pos, photos[idx].id));
     });
-    created.push(itemId);
   }
-  stmts.push(env.DB.prepare("UPDATE batches SET status = 'pret' WHERE id = ?").bind(batchId));
+  stmts.push(env.DB.prepare("UPDATE batches SET status = 'pret', note = NULL, updated_at = datetime('now') WHERE id = ?").bind(batchId));
   await env.DB.batch(stmts);
-  return json({ items: created.length });
+  return json({ ok: true, items: articles.length });
 }
 
 function clampPrix(v) {

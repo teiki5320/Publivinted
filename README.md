@@ -4,7 +4,7 @@ Outil perso pour publier mes propres annonces Vinted.
 
 ## Process
 1. **Appli web** : j'importe mes photos.
-2. **Claude** regroupe les photos par article et rédige les annonces.
+2. **Claude, sur le Mac** (abonnement, `claude -p`, aucune clé API) regroupe les photos par article et rédige les annonces.
 3. **Écran swipe** : je valide chaque annonce et ajuste le prix conseillé (−/+).
 4. **Extension Chrome** : publie le lot validé sur vinted.fr.
 
@@ -17,7 +17,15 @@ Outil perso pour publier mes propres annonces Vinted.
 - Cloudflare Worker (API ; sert aussi `docs/` en local avec `wrangler dev`)
 - Cloudflare D1 (annonces, statuts)
 - Cloudflare R2 (photos, conservées après la vente)
+- Programme du Mac (`mac/agent.mjs`) : prend les lots en attente et les fait rédiger par Claude Code
 - Extension Chrome Manifest V3 (`/extension`)
+
+## Programme du Mac
+1. `mac/.env` (ignoré par git) : `PV_TOKEN=<code d'accès de l'appli>`.
+2. `./mac/installer.sh` : tourne en continu (launchd), journal dans `~/Library/Logs/publivinted.log`.
+3. `./mac/installer.sh --retirer` pour l'arrêter.
+
+Le Mac doit être allumé, avec Claude Code connecté (`claude` puis `/login`).
 
 ## Avancement
 - [x] Étape 1 — extension : relevé des sélecteurs, remplissage d'une annonce de test, relecture, bandeau (sans publication)
