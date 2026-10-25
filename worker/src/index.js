@@ -101,7 +101,7 @@ function logout() {
   return json({ ok: true }, 200, { "Set-Cookie": "pv=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0" });
 }
 
-// Appli web publiée sur GitHub Pages (https://teiki5320.github.io/publivinted/)
+// Appli web publiée sur GitHub Pages (https://teiki5320.github.io/Publivinted/)
 const PAGES_ORIGIN = "https://teiki5320.github.io";
 
 function corsHeaders(request) {

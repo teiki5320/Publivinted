@@ -9,7 +9,7 @@ Outil perso pour publier mes propres annonces Vinted.
 4. **Extension Chrome** : publie le lot validé sur vinted.fr.
 
 ## Adresses
-- Appli : https://teiki5320.github.io/publivinted/ (GitHub Pages, dossier `docs/`) — à ouvrir depuis un Raccourci iOS (« Ouvrir les URL »).
+- Appli : https://teiki5320.github.io/Publivinted/ (GitHub Pages, dossier `docs/`) — à ouvrir depuis un Raccourci iOS (« Ouvrir les URL »).
 - API : https://publivinted.teiki5320.workers.dev
 
 ## Stack
