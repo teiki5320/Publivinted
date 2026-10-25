@@ -102,6 +102,7 @@ function renderThumbs() {
   files.forEach((f, i) => {
     const fig = document.createElement("figure");
     fig.dataset.i = i;
+    fig.style.animationDelay = `${(i % 12) * 40}ms`;
     const img = document.createElement("img");
     img.src = URL.createObjectURL(f);
     fig.appendChild(img);
@@ -135,6 +136,8 @@ $("#btn-upload").addEventListener("click", async () => {
   const status = $("#import-status");
   btn.disabled = true;
   $("#btn-clear").hidden = true;
+  $("#thumbs").classList.add("scanning");
+  status.classList.add("busy");
   try {
     const { id } = await api("/api/batches", { method: "POST" });
     for (let i = 0; i < files.length; i++) {
@@ -150,6 +153,9 @@ $("#btn-upload").addEventListener("click", async () => {
   } catch (err) {
     status.textContent = "Erreur : " + err.message;
     btn.disabled = !files.length;
+  } finally {
+    $("#thumbs").classList.remove("scanning");
+    status.classList.remove("busy");
   }
 });
 
@@ -195,11 +201,12 @@ function chips(d) {
 function cardHTML(it) {
   const d = it.data;
   const hint = it.prix_min && it.prix_max ? `fourchette ${it.prix_min}–${it.prix_max} €` : "";
+  const bar = it.prix_min && it.prix_max && it.prix_max > it.prix_min ? `<div class="bar"><i style="left:${barPos(it)}%"></i></div>` : "";
   return `
     <div class="pics">
       <img data-photo="${it.photos[0] || ""}" alt="">
       <div class="dots">${it.photos.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>
-      <span class="stamp yes">VALIDER</span><span class="stamp no">ÉCARTER</span>
+      <span class="stamp yes">VALIDÉE</span><span class="stamp no">ÉCARTÉE</span>
     </div>
     <div class="body">
       <h3>${esc(d.titre)}</h3>
@@ -208,12 +215,18 @@ function cardHTML(it) {
     </div>
     <div class="price">
       <div><div class="val"><span>${it.prix ?? "?"}</span> €</div>
-        <div class="hint">conseillé ${it.prix_conseille ?? "?"} € ${hint ? "· " + hint : ""}</div></div>
+        <div class="hint">conseillé ${it.prix_conseille ?? "?"} € ${hint ? "· " + hint : ""}</div>${bar}</div>
       <div class="pm"><button data-d="-1" aria-label="Baisser">−</button><button data-d="1" aria-label="Monter">+</button></div>
     </div>`;
 }
 
-function renderDeck() {
+// Position du prix dans la fourchette conseillée (0–100 %), pour le curseur.
+function barPos(it) {
+  const v = it.prix ?? it.prix_conseille ?? it.prix_min;
+  return Math.max(0, Math.min(100, ((v - it.prix_min) / (it.prix_max - it.prix_min)) * 100));
+}
+
+function renderDeck(rise = false) {
   const box = $("#deck");
   box.innerHTML = "";
   $("#deck-empty").hidden = deck.length > 0;
@@ -227,7 +240,10 @@ function renderDeck() {
     box.appendChild(el);
   });
   const top = box.lastElementChild;
-  if (top) bindCard(top, deck[0]);
+  if (top) {
+    if (rise) top.classList.add("rise");
+    bindCard(top, deck[0]);
+  }
 }
 
 function bindCard(el, it) {
@@ -247,6 +263,11 @@ function bindCard(el, it) {
     e.stopPropagation();
     it.prix = Math.max(1, (it.prix || it.prix_conseille || 5) + Number(b.dataset.d));
     $(".val span", el).textContent = it.prix;
+    const val = $(".val", el);
+    val.classList.toggle("bumpA", !val.classList.contains("bumpA"));
+    val.classList.toggle("bumpB", !val.classList.contains("bumpA"));
+    const knob = $(".bar i", el);
+    if (knob) knob.style.left = barPos(it) + "%";
     clearTimeout(it._t);
     it._t = setTimeout(() => patchItem(it.id, { prix: it.prix }).catch((err) => toast(err.message)), 500);
   }));
@@ -288,20 +309,29 @@ async function decide(ok) {
   deciding = true;
   const it = deck[0];
   const el = $("#deck").lastElementChild;
-  el.style.transform = `translateX(${ok ? 140 : -140}%) rotate(${ok ? 18 : -18}deg)`;
-  el.style.opacity = 0;
+  el.classList.add(ok ? "fly-yes" : "fly-no");
+  burst(ok ? `+${it.prix || it.prix_conseille || 1} €` : "Écartée", ok);
   try {
     clearTimeout(it._t);
-    await patchItem(it.id, { status: ok ? "valide" : "ecarte", prix: it.prix || it.prix_conseille || 1 });
+    await Promise.all([
+      patchItem(it.id, { status: ok ? "valide" : "ecarte", prix: it.prix || it.prix_conseille || 1 }),
+      sleep(430)
+    ]);
     deck.shift();
-    await sleep(220);
-    renderDeck();
+    renderDeck(true);
     refreshCounts();
     if (!deck.length) toast("Tout est trié. Va dans « À publier ».");
   } catch (err) {
     toast(err.message);
     renderDeck();
   } finally { deciding = false; }
+}
+// « +28 € » qui s'envole au-dessus de la carte (deux classes en alternance pour relancer l'animation).
+function burst(text, ok) {
+  const p = $("#pop");
+  p.textContent = text;
+  const next = p.classList.contains("popA") ? "popB" : "popA";
+  p.className = `pop ${ok ? "good" : "bad"} ${next}`;
 }
 $("#act-yes").addEventListener("click", () => decide(true));
 $("#act-no").addEventListener("click", () => decide(false));
@@ -347,10 +377,10 @@ function openEdit(it, after) {
 }
 
 // ---------------- Listes ----------------
-function lineHTML(it, actions) {
+function lineHTML(it, actions, i = 0) {
   const note = it.note && it.status === "a_revoir" ? `<div class="note">${esc(it.note)}</div>` : "";
   const lien = it.vinted_url ? ` · <a href="${esc(it.vinted_url)}" target="_blank" rel="noopener">voir sur Vinted</a>` : "";
-  return `<div class="line" data-id="${it.id}">
+  return `<div class="line" data-id="${it.id}" style="--i:${Math.min(i, 12)}">
     <img data-photo="${it.photos[0] || ""}" alt="">
     <div><div class="t">${esc(it.data.titre)}</div>
       <div class="s"><span class="badge ${it.status}">${LIBELLES[it.status] || it.status}</span> · ${it.prix ?? "?"} €${lien}</div>${note}</div>
@@ -361,7 +391,7 @@ const LIBELLES = { brouillon: "à valider", valide: "prête", publication: "en c
 async function loadLot() {
   const items = await api("/api/items?status=valide");
   $("#lot-list").innerHTML = items.length
-    ? items.map((it) => lineHTML(it, `<button class="btn ghost small" data-act="brouillon">Retirer</button>`)).join("")
+    ? items.map((it, i) => lineHTML(it, `<button class="btn ghost small" data-act="brouillon">Retirer</button>`, i)).join("")
     : `<p class="empty">Aucune annonce validée pour l'instant.</p>`;
   loadPhotos($("#lot-list"));
   lotCount = items.length;
@@ -377,13 +407,13 @@ $$(".filters .chip").forEach((c) => c.addEventListener("click", () => {
 async function loadSuivi() {
   const items = await api(`/api/items?status=${filtre}`);
   $("#suivi-list").innerHTML = items.length
-    ? items.map((it) => {
+    ? items.map((it, i) => {
         let a = "";
         if (it.status === "publie") a = `<button class="btn ghost small" data-act="vendu">Vendue</button>`;
         if (it.status === "a_revoir") a = `<button class="btn ghost small" data-act="edit">Modifier</button><button class="btn primary small" data-act="valide">Republier</button>`;
         if (it.status === "ecarte") a = `<button class="btn ghost small" data-act="brouillon">Récupérer</button>`;
         if (it.status === "publication") a = `<button class="btn ghost small" data-act="a_revoir">Débloquer</button>`;
-        return lineHTML(it, a);
+        return lineHTML(it, a, i);
       }).join("")
     : `<p class="empty">Rien ici.</p>`;
   loadPhotos($("#suivi-list"));
@@ -458,6 +488,9 @@ $("#btn-publish").addEventListener("click", async () => {
   $("#btn-stop").hidden = false; $("#btn-stop").disabled = false;
   updatePublishButton();
   const prog = $("#pub-progress");
+  const bar = $("#pub-bar");
+  bar.style.width = "0%";
+  prog.classList.add("busy");
   let ok = 0, ko = 0;
 
   for (let i = 0; i < items.length; i++) {
@@ -466,6 +499,7 @@ $("#btn-publish").addEventListener("click", async () => {
     prog.textContent = `Annonce ${i + 1}/${items.length} : ${it.data.titre}`;
     try {
       await api(`/api/items/${it.id}/claim`, { method: "POST" });
+      $(`#lot-list .line[data-id="${it.id}"]`)?.classList.add("run");
       const photos = [];
       for (const pid of it.photos) {
         const blob = await fetchPhoto(pid);
@@ -482,6 +516,7 @@ $("#btn-publish").addEventListener("click", async () => {
       ko++;
       await api(`/api/items/${it.id}/result`, { method: "POST", body: JSON.stringify({ ok: false, note: err.message }) }).catch(() => {});
     }
+    bar.style.width = `${Math.round(((i + 1) / items.length) * 100)}%`;
     loadLot(); refreshCounts();
     if (i < items.length - 1 && !stopAsked) {
       const wait = 30 + Math.round(Math.random() * 60);
@@ -489,6 +524,7 @@ $("#btn-publish").addEventListener("click", async () => {
     }
   }
   running = false;
+  prog.classList.remove("busy");
   $("#btn-stop").hidden = true;
   prog.textContent = `Terminé : ${ok} publiée(s), ${ko} à revoir.`;
   updatePublishButton();
