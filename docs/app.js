@@ -477,7 +477,12 @@ $("#btn-publish").addEventListener("click", async () => {
 
 // ---------------- Démarrage ----------------
 async function start() {
-  try { await api("/api/me"); } catch { return; }
+  try { await api("/api/me"); } catch (err) {
+    // Sans ça, une erreur serveur (secret manquant, réseau) laisse la page vide.
+    showLogin();
+    if (err.message !== "Non connecté") $("#login-err").textContent = err.message;
+    return;
+  }
   $("#v-login").hidden = true;
   $("#app").hidden = false;
   refreshCounts();
