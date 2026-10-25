@@ -56,9 +56,10 @@
   async function injectPhotos(input, paths) {
     const dt = new DataTransfer();
     for (const p of paths) {
-      const res = await fetch(chrome.runtime.getURL(p));
-      const blob = await res.blob();
-      const name = p.split("/").pop();
+      // Photo de test (chemin dans l'extension) ou photo de l'appli ({ name, dataUrl })
+      const src = typeof p === "string" ? chrome.runtime.getURL(p) : p.dataUrl;
+      const blob = await (await fetch(src)).blob();
+      const name = typeof p === "string" ? p.split("/").pop() : p.name;
       dt.items.add(new File([blob], name, { type: blob.type || "image/jpeg", lastModified: Date.now() }));
     }
     input.files = dt.files;
@@ -187,7 +188,7 @@
   }
 
   // ---------- Bandeau ----------
-  function banner(rows) {
+  function banner(rows, { publish = false, clicked = false, note = null } = {}) {
     document.getElementById("pv-banner")?.remove();
     const box = document.createElement("div");
     box.id = "pv-banner";
@@ -200,7 +201,9 @@
     box.innerHTML =
       `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">` +
       `<b>Publivinted — test de remplissage</b><button id="pv-x" style="border:0;background:none;font-size:18px;cursor:pointer">×</button></div>` +
-      `<div style="margin-bottom:8px">${ok}/${rows.length} champs conformes. <b>Publication non lancée.</b></div>` +
+      `<div style="margin-bottom:8px">${ok}/${rows.length} champs conformes. <b>${
+        clicked ? "Publication envoyée." : publish ? "Publication annulée." : "Mode test : publication non lancée."
+      }</b>${note ? `<br><small style="color:#c2453a">${note}</small>` : ""}</div>` +
       rows
         .map(
           (r) =>
@@ -218,12 +221,15 @@
   // ---------- Orchestration ----------
   const ORDER = ["photos", "titre", "description", "categorie", "marque", "taille", "etat", "couleur", "matiere", "prix", "colis"];
 
-  async function run(listing) {
+  const vide = (v) => v == null || v === "" || (Array.isArray(v) && v.length === 0);
+  const OBLIGATOIRES = ["photos", "titre", "description", "categorie", "etat", "prix"];
+
+  async function run(listing, { publish = false } = {}) {
     const rows = [];
     for (const key of ORDER) {
       const field = S[key];
       const value = listing[key];
-      if (value == null) continue;
+      if (vide(value)) continue;
       let r;
       try {
         r = await fillField(key, field, value);
@@ -240,13 +246,36 @@
       row.match = row.status !== "introuvable" && matches(row.key, listing[row.key], rb);
       if (row.status === "rempli" && !row.match) row.detail = (row.detail ? row.detail + " · " : "") + "écart à la relecture";
     }
-    banner(rows);
-    return rows;
+    // Garde-fou : tous les champs demandés doivent être conformes, et les obligatoires présents.
+    const manquants = OBLIGATOIRES.filter((k) => !rows.find((r) => r.key === k));
+    const ecarts = rows.filter((r) => !r.match).map((r) => r.key);
+    const conforme = !manquants.length && !ecarts.length;
+    let clicked = false, note = null;
+
+    if (!conforme) {
+      note = [manquants.length && `manquants : ${manquants.join(", ")}`, ecarts.length && `non conformes : ${ecarts.join(", ")}`]
+        .filter(Boolean).join(" · ");
+    } else if (publish) {
+      const btn = first(S.publier);
+      if (!btn || btn.el.disabled) note = "Bouton de publication introuvable ou désactivé";
+      else { await pause(); clickEl(btn.el); clicked = true; }
+    }
+    banner(rows, { publish, clicked, note });
+    return { rows, clicked, note };
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.action === "pv-fill-test") {
-      run(window.PV_TEST_LISTING).then((rows) => sendResponse({ ok: true, rows }));
+      run(window.PV_TEST_LISTING, { publish: false }).then(sendResponse);
+      return true;
+    }
+    if (msg?.action === "pv-fill") {
+      if (window.__pvBusy) { sendResponse({ clicked: false, note: "Remplissage déjà en cours" }); return; }
+      window.__pvBusy = true;
+      run(msg.listing, { publish: !!msg.publish })
+        .then(sendResponse)
+        .catch((e) => sendResponse({ clicked: false, note: e.message }))
+        .finally(() => (window.__pvBusy = false));
       return true;
     }
   });

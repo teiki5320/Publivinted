@@ -1,0 +1,25 @@
+name = "publivinted"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Appli web statique servie par le Worker ; /api/* passe par le code.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "publivinted"
+database_id = "REMPLACER_PAR_ID_D1"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "publivinted-photos"
+
+[vars]
+CLAUDE_MODEL = "claude-sonnet-5-5"
+
+# Secrets (à poser avec wrangler, jamais dans le dépôt) :
+#   wrangler secret put APP_TOKEN          -> code d'accès de l'appli et de l'extension
+#   wrangler secret put ANTHROPIC_API_KEY  -> clé API Anthropic
