@@ -93,7 +93,7 @@ main { max-width: 760px; margin: 0 auto; padding: 1.2rem 16px 6rem; }
 
 /* Listes */
 .list { display: grid; gap: 10px; margin-top: 1rem; }
-.line { display: grid; grid-template-columns: 64px 1fr auto; gap: .8rem; align-items: center; background: var(--card); border-radius: 14px; padding: 8px; }
+.line { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: .8rem; align-items: center; background: var(--card); border-radius: 14px; padding: 8px; }
 .line img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; background: var(--line); }
 .line .t { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line .s { font-size: .82rem; color: var(--muted); }
@@ -123,4 +123,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .4); }
 @media (max-width: 520px) {
   .grid2 { grid-template-columns: 1fr; }
   .logo { display: none; }
+  .top { gap: 0; }
+  .tab { padding: .45em .6em; } /* les quatre onglets tiennent sur une ligne */
 }
