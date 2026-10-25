@@ -8,8 +8,13 @@ Outil perso pour publier mes propres annonces Vinted.
 3. **Écran swipe** : je valide chaque annonce et ajuste le prix conseillé (−/+).
 4. **Extension Chrome** : publie le lot validé sur vinted.fr.
 
+## Adresses
+- Appli : https://teiki5320.github.io/publivinted/ (GitHub Pages, dossier `docs/`) — à ouvrir depuis un Raccourci iOS (« Ouvrir les URL »).
+- API : https://publivinted.teiki5320.workers.dev
+
 ## Stack
-- Cloudflare Worker (API + appli web)
+- GitHub Pages (appli web, `docs/`)
+- Cloudflare Worker (API ; sert aussi `docs/` en local avec `wrangler dev`)
 - Cloudflare D1 (annonces, statuts)
 - Cloudflare R2 (photos, conservées après la vente)
 - Extension Chrome Manifest V3 (`/extension`)

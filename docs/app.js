@@ -7,11 +7,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---------------- API ----------------
+// Même origine quand le Worker sert la page ; sinon (GitHub Pages) on appelle le Worker en ligne.
+const API = location.hostname.endsWith("github.io") ? "https://publivinted.teiki5320.workers.dev" : "";
+// Le code d'accès reste sur l'appareil et part dans chaque requête (pas de cookie entre deux domaines).
+const TOKEN_KEY = "pv_token";
+const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
+const setToken = (t) => { try { localStorage.setItem(TOKEN_KEY, t); } catch {} };
+const auth = () => ({ Authorization: `Bearer ${getToken()}` });
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    credentials: "same-origin",
+  const res = await fetch(API + path, {
     ...opts,
-    headers: { ...(opts.body && !(opts.body instanceof Blob) ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) }
+    headers: { ...(opts.body && !(opts.body instanceof Blob) ? { "Content-Type": "application/json" } : {}), ...auth(), ...(opts.headers || {}) }
   });
   if (res.status === 401 && path !== "/api/login") { showLogin(); throw new Error("Non connecté"); }
   const data = res.headers.get("Content-Type")?.includes("json") ? await res.json() : null;
@@ -19,6 +26,22 @@ async function api(path, opts = {}) {
   return data;
 }
 const patchItem = (id, body) => api(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+
+// Photos : servies par l'API authentifiée, donc chargées en blob puis affichées via <img data-photo="id">.
+const fetchPhoto = (id) =>
+  fetch(`${API}/api/photos/${id}`, { headers: auth() }).then((r) => { if (!r.ok) throw new Error(`Photo : erreur ${r.status}`); return r.blob(); });
+const photoUrls = new Map(); // id → Promise<URL objet>
+function showPhoto(img, id) {
+  if (!id) return;
+  img.dataset.photo = id;
+  if (!photoUrls.has(id)) {
+    const p = fetchPhoto(id).then((b) => URL.createObjectURL(b));
+    p.catch(() => photoUrls.delete(id));
+    photoUrls.set(id, p);
+  }
+  photoUrls.get(id).then((u) => { if (img.dataset.photo === id) img.src = u; }).catch(() => {});
+}
+const loadPhotos = (root) => $$("img[data-photo]", root).forEach((img) => showPhoto(img, img.dataset.photo));
 
 function toast(msg, ms = 2600) {
   const t = $("#toast");
@@ -34,7 +57,9 @@ $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#login-err").textContent = "";
   try {
-    await api("/api/login", { method: "POST", body: JSON.stringify({ token: $("#login-token").value }) });
+    const token = $("#login-token").value;
+    await api("/api/login", { method: "POST", body: JSON.stringify({ token }) });
+    setToken(token);
     start();
   } catch (err) { $("#login-err").textContent = err.message; }
 });
@@ -152,7 +177,7 @@ function cardHTML(it) {
   const hint = it.prix_min && it.prix_max ? `fourchette ${it.prix_min}–${it.prix_max} €` : "";
   return `
     <div class="pics">
-      <img src="/api/photos/${it.photos[0] || ""}" alt="">
+      <img data-photo="${it.photos[0] || ""}" alt="">
       <div class="dots">${it.photos.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>
       <span class="stamp yes">VALIDER</span><span class="stamp no">ÉCARTER</span>
     </div>
@@ -178,6 +203,7 @@ function renderDeck() {
     const el = document.createElement("article");
     el.className = "card" + (idx === 0 && arr.length > 1 ? " behind" : "");
     el.innerHTML = cardHTML(it);
+    loadPhotos(el);
     box.appendChild(el);
   });
   const top = box.lastElementChild;
@@ -192,7 +218,7 @@ function bindCard(el, it) {
     if (moved || it.photos.length < 2) return;
     const r = e.currentTarget.getBoundingClientRect();
     pi = (pi + (e.clientX - r.left > r.width / 2 ? 1 : -1) + it.photos.length) % it.photos.length;
-    img.src = `/api/photos/${it.photos[pi]}`;
+    showPhoto(img, it.photos[pi]);
     $$(".dots i", el).forEach((d, i) => d.classList.toggle("on", i === pi));
   });
 
@@ -305,7 +331,7 @@ function lineHTML(it, actions) {
   const note = it.note && it.status === "a_revoir" ? `<div class="note">${esc(it.note)}</div>` : "";
   const lien = it.vinted_url ? ` · <a href="${esc(it.vinted_url)}" target="_blank" rel="noopener">voir sur Vinted</a>` : "";
   return `<div class="line" data-id="${it.id}">
-    <img src="/api/photos/${it.photos[0] || ""}" alt="" loading="lazy">
+    <img data-photo="${it.photos[0] || ""}" alt="">
     <div><div class="t">${esc(it.data.titre)}</div>
       <div class="s"><span class="badge ${it.status}">${LIBELLES[it.status] || it.status}</span> · ${it.prix ?? "?"} €${lien}</div>${note}</div>
     <div class="acts">${actions}</div></div>`;
@@ -317,6 +343,7 @@ async function loadLot() {
   $("#lot-list").innerHTML = items.length
     ? items.map((it) => lineHTML(it, `<button class="btn ghost small" data-act="brouillon">Retirer</button>`)).join("")
     : `<p class="empty">Aucune annonce validée pour l'instant.</p>`;
+  loadPhotos($("#lot-list"));
   lotCount = items.length;
   updatePublishButton();
 }
@@ -339,6 +366,7 @@ async function loadSuivi() {
         return lineHTML(it, a);
       }).join("")
     : `<p class="empty">Rien ici.</p>`;
+  loadPhotos($("#suivi-list"));
 }
 
 document.addEventListener("click", async (e) => {
@@ -420,7 +448,7 @@ $("#btn-publish").addEventListener("click", async () => {
       await api(`/api/items/${it.id}/claim`, { method: "POST" });
       const photos = [];
       for (const pid of it.photos) {
-        const blob = await (await fetch(`/api/photos/${pid}`, { credentials: "same-origin" })).blob();
+        const blob = await fetchPhoto(pid);
         photos.push({ name: `${pid}.jpg`, dataUrl: await blobToDataUrl(blob) });
       }
       const listing = { ...it.data, prix: String(it.prix), photos };

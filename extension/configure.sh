@@ -11,7 +11,7 @@ path, url = sys.argv[1], sys.argv[2]
 m = json.load(open(path))
 for cs in m["content_scripts"]:
     if "bridge.js" in cs["js"]:
-        cs["matches"] = [url + "/*", "http://localhost:8787/*"]
-json.dump(m, open(path, "w"), ensure_ascii=False, indent=2)
+        cs["matches"] = ["https://teiki5320.github.io/publivinted/*", url + "/*", "http://localhost:8787/*"]
+open(path, "w").write(json.dumps(m, ensure_ascii=False, indent=2) + "\n")
 print("Extension reliée à", url, "— recharge-la dans chrome://extensions")
 EOF

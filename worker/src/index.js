@@ -101,10 +101,13 @@ function logout() {
   return json({ ok: true }, 200, { "Set-Cookie": "pv=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0" });
 }
 
+// Appli web publiée sur GitHub Pages (https://teiki5320.github.io/publivinted/)
+const PAGES_ORIGIN = "https://teiki5320.github.io";
+
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
-  // Seule l'extension (origine chrome-extension://) a besoin du CORS ; l'appli web est sur la même origine.
-  if (!origin.startsWith("chrome-extension://")) return {};
+  // CORS pour l'extension (chrome-extension://) et l'appli sur GitHub Pages ; l'appli servie par le Worker est sur la même origine.
+  if (!origin.startsWith("chrome-extension://") && origin !== PAGES_ORIGIN) return {};
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
