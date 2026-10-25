@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Publivinted",
+  "version": "0.1.0",
+  "description": "Remplit et publie mes annonces Vinted préparées dans Publivinted.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://www.vinted.fr/*"],
+  "action": {
+    "default_title": "Publivinted",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.vinted.fr/items/new*"],
+      "js": ["selectors.js", "test-listing.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["test/*"],
+      "matches": ["https://www.vinted.fr/*"]
+    }
+  ]
+}
